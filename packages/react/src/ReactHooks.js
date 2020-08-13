@@ -8,12 +8,14 @@
  */
 
 import type {
+  MutableSource,
+  MutableSourceGetSnapshotFn,
+  MutableSourceSubscribeFn,
   ReactContext,
-  ReactEventResponder,
-  ReactEventResponderListener,
 } from 'shared/ReactTypes';
+import type {OpaqueIDType} from 'react-reconciler/src/ReactFiberHostConfig';
+
 import invariant from 'shared/invariant';
-import {REACT_RESPONDER_TYPE} from 'shared/ReactSymbols';
 
 import ReactCurrentDispatcher from './ReactCurrentDispatcher';
 
@@ -37,7 +39,7 @@ function resolveDispatcher() {
 export function useContext<T>(
   Context: ReactContext<T>,
   unstable_observedBits: number | boolean | void,
-) {
+): T {
   const dispatcher = resolveDispatcher();
   if (__DEV__) {
     if (unstable_observedBits !== undefined) {
@@ -149,23 +151,6 @@ export function useDebugValue<T>(
 
 export const emptyObject = {};
 
-export function useResponder(
-  responder: ReactEventResponder<any, any>,
-  listenerProps: ?Object,
-): ?ReactEventResponderListener<any, any> {
-  const dispatcher = resolveDispatcher();
-  if (__DEV__) {
-    if (responder == null || responder.$$typeof !== REACT_RESPONDER_TYPE) {
-      console.error(
-        'useResponder: invalid first argument. Expected an event responder, but instead got %s',
-        responder,
-      );
-      return;
-    }
-  }
-  return dispatcher.useResponder(responder, listenerProps || emptyObject);
-}
-
 export function useTransition(
   config: ?Object,
 ): [(() => void) => void, boolean] {
@@ -176,4 +161,18 @@ export function useTransition(
 export function useDeferredValue<T>(value: T, config: ?Object): T {
   const dispatcher = resolveDispatcher();
   return dispatcher.useDeferredValue(value, config);
+}
+
+export function useOpaqueIdentifier(): OpaqueIDType | void {
+  const dispatcher = resolveDispatcher();
+  return dispatcher.useOpaqueIdentifier();
+}
+
+export function useMutableSource<Source, Snapshot>(
+  source: MutableSource<Source>,
+  getSnapshot: MutableSourceGetSnapshotFn<Source, Snapshot>,
+  subscribe: MutableSourceSubscribeFn<Source, Snapshot>,
+): Snapshot {
+  const dispatcher = resolveDispatcher();
+  return dispatcher.useMutableSource(source, getSnapshot, subscribe);
 }

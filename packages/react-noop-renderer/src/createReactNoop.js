@@ -14,15 +14,18 @@
  * environment.
  */
 
-import type {Fiber} from 'react-reconciler/src/ReactFiber';
+import type {Fiber} from 'react-reconciler/src/ReactInternalTypes';
 import type {UpdateQueue} from 'react-reconciler/src/ReactUpdateQueue';
 import type {ReactNodeList} from 'shared/ReactTypes';
-import type {RootTag} from 'shared/ReactRootTags';
+import type {RootTag} from 'react-reconciler/src/ReactRootTags';
 
 import * as Scheduler from 'scheduler/unstable_mock';
-import {createPortal} from 'shared/ReactPortal';
 import {REACT_FRAGMENT_TYPE, REACT_ELEMENT_TYPE} from 'shared/ReactSymbols';
-import {ConcurrentRoot, BlockingRoot, LegacyRoot} from 'shared/ReactRootTags';
+import {
+  ConcurrentRoot,
+  BlockingRoot,
+  LegacyRoot,
+} from 'react-reconciler/src/ReactRootTags';
 
 type Container = {
   rootID: string,
@@ -152,6 +155,10 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     insertInContainerOrInstanceBefore(parentInstance, child, beforeChild);
   }
 
+  function clearContainer(container: Container): void {
+    container.children.splice(0);
+  }
+
   function removeChildFromContainerOrInstance(
     parentInstance: Container | Instance,
     child: Instance | TextInstance,
@@ -207,7 +214,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
         ? computeText((newProps.children: any) + '', instance.context)
         : null,
       prop: newProps.prop,
-      hidden: newProps.hidden === true,
+      hidden: !!newProps.hidden,
       context: instance.context,
     };
     Object.defineProperty(clone, 'id', {
@@ -276,7 +283,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
           ? computeText((props.children: any) + '', hostContext)
           : null,
         prop: props.prop,
-        hidden: props.hidden === true,
+        hidden: !!props.hidden,
         context: hostContext,
       };
       // Hide from unit tests
@@ -328,10 +335,6 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
 
     shouldSetTextContent,
 
-    shouldDeprioritizeSubtree(type: string, props: Props): boolean {
-      return !!props.hidden;
-    },
-
     createTextInstance(
       text: string,
       rootContainerInstance: Container,
@@ -360,7 +363,9 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     cancelTimeout: clearTimeout,
     noTimeout: -1,
 
-    prepareForCommit(): void {},
+    prepareForCommit(): null | Object {
+      return null;
+    },
 
     resetAfterCommit(): void {},
 
@@ -369,14 +374,6 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     isPrimaryRenderer: true,
     warnsIfNotActing: true,
     supportsHydration: false,
-
-    DEPRECATED_mountResponderInstance(): void {
-      // NO-OP
-    },
-
-    DEPRECATED_unmountResponderInstance(): void {
-      // NO-OP
-    },
 
     getFundamentalComponentInstance(fundamentalInstance): Instance {
       const {impl, props, state} = fundamentalInstance;
@@ -433,8 +430,22 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
       throw new Error('Not yet implemented.');
     },
 
-    beforeRemoveInstance(instance: any): void {
+    beforeActiveInstanceBlur() {
       // NO-OP
+    },
+
+    afterActiveInstanceBlur() {
+      // NO-OP
+    },
+
+    preparePortalMount() {
+      // NO-OP
+    },
+
+    prepareScopeUpdate() {},
+
+    getInstanceFromScope() {
+      throw new Error('Not yet implemented.');
     },
   };
 
@@ -461,7 +472,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
           }
           hostUpdateCounter++;
           instance.prop = newProps.prop;
-          instance.hidden = newProps.hidden === true;
+          instance.hidden = !!newProps.hidden;
           if (shouldSetTextContent(type, newProps)) {
             instance.text = computeText(
               (newProps.children: any) + '',
@@ -485,6 +496,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
         insertInContainerBefore,
         removeChild,
         removeChildFromContainer,
+        clearContainer,
 
         hideInstance(instance: Instance): void {
           instance.hidden = true;
@@ -514,6 +526,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
         supportsPersistence: true,
 
         cloneInstance,
+        clearContainer,
 
         createContainerChildSet(
           container: Container,
@@ -533,6 +546,13 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
           newChildren: Array<Instance | TextInstance>,
         ): void {
           container.pendingChildren = newChildren;
+          if (
+            newChildren.length === 1 &&
+            newChildren[0].text === 'Error when completing root'
+          ) {
+            // Trigger an error for testing purposes
+            throw Error('Error when completing root');
+          }
         },
 
         replaceContainerChildren(
@@ -778,6 +798,32 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
       };
     },
 
+    createLegacyRoot() {
+      const container = {
+        rootID: '' + idCounter++,
+        pendingChildren: [],
+        children: [],
+      };
+      const fiberRoot = NoopRenderer.createContainer(
+        container,
+        LegacyRoot,
+        false,
+        null,
+      );
+      return {
+        _Scheduler: Scheduler,
+        render(children: ReactNodeList) {
+          NoopRenderer.updateContainer(children, fiberRoot, null, null);
+        },
+        getChildren() {
+          return getChildren(container);
+        },
+        getChildrenAsJSX() {
+          return getChildrenAsJSX(container);
+        },
+      };
+    },
+
     getChildrenAsJSX(rootID: string = DEFAULT_ROOT_ID) {
       const container = rootContainers.get(rootID);
       return getChildrenAsJSX(container);
@@ -793,7 +839,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
       container: Container,
       key: ?string = null,
     ) {
-      return createPortal(children, container, null, key);
+      return NoopRenderer.createPortal(children, container, null, key);
     },
 
     // Shortcut for testing a single root
@@ -894,6 +940,8 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
       return Scheduler.unstable_flushExpired();
     },
 
+    unstable_runWithPriority: NoopRenderer.runWithPriority,
+
     batchedUpdates: NoopRenderer.batchedUpdates,
 
     deferredUpdates: NoopRenderer.deferredUpdates,
@@ -922,7 +970,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
         return;
       }
 
-      let bufferedLog = [];
+      const bufferedLog = [];
       function log(...args) {
         bufferedLog.push(...args, '\n');
       }
@@ -951,25 +999,21 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
 
       function logUpdateQueue(updateQueue: UpdateQueue<mixed>, depth) {
         log('  '.repeat(depth + 1) + 'QUEUED UPDATES');
-        const last = updateQueue.baseQueue;
-        if (last === null) {
-          return;
-        }
-        const first = last.next;
-        let update = first;
+        const first = updateQueue.firstBaseUpdate;
+        const update = first;
         if (update !== null) {
           do {
             log(
               '  '.repeat(depth + 1) + '~',
               '[' + update.expirationTime + ']',
             );
-          } while (update !== null && update !== first);
+          } while (update !== null);
         }
 
         const lastPending = updateQueue.shared.pending;
         if (lastPending !== null) {
           const firstPending = lastPending.next;
-          let pendingUpdate = firstPending;
+          const pendingUpdate = firstPending;
           if (pendingUpdate !== null) {
             do {
               log(

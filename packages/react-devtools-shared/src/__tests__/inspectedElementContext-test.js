@@ -549,6 +549,14 @@ describe('InspectedElementContext', () => {
     }
     const instance = new Class();
 
+    const proxyInstance = new Proxy(() => {}, {
+      get: function(_, name) {
+        return function() {
+          return null;
+        };
+      },
+    });
+
     const container = document.createElement('div');
     await utils.actAsync(() =>
       ReactDOM.render(
@@ -567,6 +575,7 @@ describe('InspectedElementContext', () => {
           map={mapShallow}
           map_of_maps={mapOfMaps}
           object_of_objects={objectOfObjects}
+          proxy={proxyInstance}
           react_element={<span />}
           regexp={/abc/giu}
           set={setShallow}
@@ -619,6 +628,7 @@ describe('InspectedElementContext', () => {
       map,
       map_of_maps,
       object_of_objects,
+      proxy,
       react_element,
       regexp,
       set,
@@ -721,6 +731,12 @@ describe('InspectedElementContext', () => {
       '{boolean: true, number: 123, string: "abc"}',
     );
     expect(object_of_objects.inner[meta.preview_short]).toBe('{…}');
+
+    expect(proxy[meta.inspectable]).toBe(false);
+    expect(proxy[meta.name]).toBe('function');
+    expect(proxy[meta.type]).toBe('function');
+    expect(proxy[meta.preview_long]).toBe('ƒ () {}');
+    expect(proxy[meta.preview_short]).toBe('ƒ () {}');
 
     expect(react_element[meta.inspectable]).toBe(false);
     expect(react_element[meta.name]).toBe('span');
@@ -1568,6 +1584,56 @@ describe('InspectedElementContext', () => {
     expect(global.mockClipboardCopy).toHaveBeenCalledWith(
       JSON.stringify({0: 100, 1: -100, 2: 0}),
     );
+
+    done();
+  });
+
+  it('display complex values of useDebugValue', async done => {
+    let getInspectedElementPath: GetInspectedElementPath = ((null: any): GetInspectedElementPath);
+    let inspectedElement = null;
+    function Suspender({target}) {
+      const context = React.useContext(InspectedElementContext);
+      getInspectedElementPath = context.getInspectedElementPath;
+      inspectedElement = context.getInspectedElement(target);
+      return null;
+    }
+
+    const container = document.createElement('div');
+
+    function useDebuggableHook() {
+      React.useDebugValue({foo: 2});
+      React.useState(1);
+      return 1;
+    }
+    function DisplayedComplexValue() {
+      useDebuggableHook();
+      return null;
+    }
+
+    await utils.actAsync(() =>
+      ReactDOM.render(<DisplayedComplexValue />, container),
+    );
+
+    const ignoredComplexValueIndex = 0;
+    const ignoredComplexValueId = ((store.getElementIDAtIndex(
+      ignoredComplexValueIndex,
+    ): any): number);
+    await utils.actAsync(
+      () =>
+        TestRenderer.create(
+          <Contexts
+            defaultSelectedElementID={ignoredComplexValueId}
+            defaultSelectedElementIndex={ignoredComplexValueIndex}>
+            <React.Suspense fallback={null}>
+              <Suspender target={ignoredComplexValueId} />
+            </React.Suspense>
+          </Contexts>,
+        ),
+      false,
+    );
+    expect(getInspectedElementPath).not.toBeNull();
+    expect(inspectedElement).not.toBeNull();
+    expect(inspectedElement).toMatchSnapshot('DisplayedComplexValue');
 
     done();
   });
